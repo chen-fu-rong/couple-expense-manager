@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import './App.css';
 
 declare global {
@@ -23,10 +23,11 @@ function App() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [isOptionalSplit, setIsOptionalSplit] = useState(false); 
-  const [fundSource, setFundSource] = useState('personal'); 
+  const [fundSource, setFundSource] = useState<'personal' | 'family'>('personal'); 
   
   const tg = window.Telegram.WebApp;
 
+  // --- API LOGIC (Unchanged) ---
   const fetchDashboardData = async (currentUserId: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/ledger/dashboard`);
@@ -44,7 +45,6 @@ function App() {
 
       setActiveUser(prev => prev ? { ...prev, personalBalance: myBalance } : null);
       setPartner({ id: partnerId, name: partnerId === "Partner" ? "Partner" : "Aung Phyo Paing", personalBalance: partnerBalance });
-
     } catch (error) {
       console.error("Failed to fetch dashboard", error);
     }
@@ -53,6 +53,7 @@ function App() {
   useEffect(() => {
     tg.ready();
     tg.expand();
+    tg.setHeaderColor('var(--tg-theme-bg-color)'); // Native header color
 
     const tgUser = tg.initDataUnsafe?.user;
     const userId = tgUser ? String(tgUser.id) : "111"; 
@@ -64,19 +65,13 @@ function App() {
     fetchDashboardData(userId);
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const safeAlert = (msg: string) => {
-      try { tg.showAlert(msg); } catch { window.alert(msg); }
-    };
-
-    if (!amount || !description || !activeUser) {
-      safeAlert("Please enter an amount and description.");
-      return;
-    }
+  // --- TELEGRAM NATIVE MAIN BUTTON LOGIC ---
+  const handleSave = useCallback(async () => {
+    if (!amount || !description || !activeUser) return;
 
     try {
-      tg.HapticFeedback?.impactOccurred('light');
+      tg.MainButton.showProgress(); // Shows native loading spinner
+      tg.HapticFeedback?.impactOccurred('medium');
       
       await fetch(`${API_BASE_URL}/expenses/`, {
         method: "POST",
@@ -91,67 +86,162 @@ function App() {
         })
       });
 
-      safeAlert("Expense saved successfully!");
-      
+      tg.HapticFeedback?.notificationOccurred('success');
       setAmount('');
       setDescription('');
       setIsOptionalSplit(false);
       fetchDashboardData(activeUser.id);
-
+      
     } catch (error) {
-      safeAlert("Error saving expense. Check your VPS connection.");
+      tg.HapticFeedback?.notificationOccurred('error');
+      tg.showAlert("Network Error. Please try again.");
+    } finally {
+      tg.MainButton.hideProgress();
+      tg.MainButton.hide();
     }
-  };
+  }, [amount, description, activeUser, fundSource, isOptionalSplit]);
 
+  // Manage Telegram MainButton visibility
+  useEffect(() => {
+    if (amount && description) {
+      tg.MainButton.setText(`ADD $${amount} TO LEDGER`);
+      tg.MainButton.setParams({
+        color: tg.themeParams.button_color || '#2481cc',
+        text_color: tg.themeParams.button_text_color || '#ffffff'
+      });
+      tg.MainButton.show();
+    } else {
+      tg.MainButton.hide();
+    }
+
+    tg.onEvent('mainButtonClicked', handleSave);
+    return () => {
+      tg.offEvent('mainButtonClicked', handleSave);
+    };
+  }, [amount, description, handleSave]);
+
+  // --- UI RENDER ---
   return (
     <div style={{
       backgroundColor: 'var(--tg-theme-bg-color)',
       color: 'var(--tg-theme-text-color)',
-      minHeight: '100vh', padding: '20px', fontFamily: 'system-ui, sans-serif'
+      minHeight: '100vh', 
+      padding: '20px 16px', 
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
     }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Family Ledger</h2>
       
+      {/* 1. Hero Card: Family Fund */}
       <div style={{
-        backgroundColor: 'var(--tg-theme-button-color)', color: 'var(--tg-theme-button-text-color)',
-        padding: '25px', borderRadius: '16px', textAlign: 'center', marginBottom: '20px'
+        background: 'linear-gradient(135deg, var(--tg-theme-button-color), #8A2BE2)', // Subtle premium gradient
+        color: '#ffffff',
+        padding: '24px',
+        borderRadius: '20px',
+        textAlign: 'center',
+        marginBottom: '20px',
+        boxShadow: '0 8px 20px rgba(0,0,0,0.15)'
       }}>
-        <p style={{ margin: 0, opacity: 0.9, fontSize: '14px' }}>Family Fund</p>
-        <h1 style={{ margin: '5px 0 0 0', fontSize: '36px' }}>${familyFund.toFixed(2)}</h1>
+        <p style={{ margin: 0, opacity: 0.85, fontSize: '15px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '1px' }}>Shared Family Fund</p>
+        <h1 style={{ margin: '8px 0 0 0', fontSize: '42px', fontWeight: '800' }}>${familyFund.toFixed(2)}</h1>
       </div>
 
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '25px' }}>
-        <div style={{ flex: 1, backgroundColor: 'var(--tg-theme-secondary-bg-color)', padding: '15px', borderRadius: '12px', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '14px', opacity: 0.7 }}>{activeUser?.name}</p>
-          <h3 style={{ margin: '5px 0 0 0', color: (activeUser?.personalBalance ?? 0) >= 0 ? '#4CAF50' : '#F44336' }}>
-            ${activeUser?.personalBalance.toFixed(2)}
-          </h3>
-        </div>
-        <div style={{ flex: 1, backgroundColor: 'var(--tg-theme-secondary-bg-color)', padding: '15px', borderRadius: '12px', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '14px', opacity: 0.7 }}>{partner?.name}</p>
-          <h3 style={{ margin: '5px 0 0 0', color: (partner?.personalBalance ?? 0) >= 0 ? '#4CAF50' : '#F44336' }}>
-            ${partner?.personalBalance.toFixed(2)}
-          </h3>
-        </div>
+      {/* 2. Side-by-Side Personal Cards */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '30px' }}>
+        {[activeUser, partner].map((user, idx) => (
+          <div key={idx} style={{
+            flex: 1,
+            backgroundColor: 'var(--tg-theme-secondary-bg-color)',
+            padding: '16px',
+            borderRadius: '16px',
+            textAlign: 'center'
+          }}>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--tg-theme-hint-color)', fontWeight: '500' }}>{user?.name}</p>
+            <h3 style={{ 
+              margin: '6px 0 0 0', 
+              fontSize: '22px', 
+              fontWeight: '700',
+              color: (user?.personalBalance ?? 0) >= 0 ? '#34C759' : '#FF3B30' // iOS Native Green/Red
+            }}>
+              {(user?.personalBalance ?? 0) >= 0 ? '+' : '-'}${Math.abs(user?.personalBalance ?? 0).toFixed(2)}
+            </h3>
+          </div>
+        ))}
       </div>
 
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button type="button" onClick={() => setFundSource('personal')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: fundSource === 'personal' ? '2px solid var(--tg-theme-button-color)' : '1px solid gray', background: 'transparent', color: 'var(--tg-theme-text-color)' }}>Personal Pocket</button>
-          <button type="button" onClick={() => setFundSource('family')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: fundSource === 'family' ? '2px solid var(--tg-theme-button-color)' : '1px solid gray', background: 'transparent', color: 'var(--tg-theme-text-color)' }}>Family Fund</button>
-        </div>
+      {/* 3. iOS-Style Segmented Picker */}
+      <div style={{
+        display: 'flex',
+        backgroundColor: 'var(--tg-theme-secondary-bg-color)',
+        borderRadius: '12px',
+        padding: '4px',
+        marginBottom: '20px'
+      }}>
+        {['personal', 'family'].map((type) => (
+          <div 
+            key={type}
+            onClick={() => setFundSource(type as 'personal' | 'family')}
+            style={{
+              flex: 1,
+              textAlign: 'center',
+              padding: '10px 0',
+              borderRadius: '10px',
+              fontSize: '14px',
+              fontWeight: '600',
+              backgroundColor: fundSource === type ? 'var(--tg-theme-bg-color)' : 'transparent',
+              color: fundSource === type ? 'var(--tg-theme-text-color)' : 'var(--tg-theme-hint-color)',
+              boxShadow: fundSource === type ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.2s ease',
+              textTransform: 'capitalize'
+            }}
+          >
+            {type === 'personal' ? '👤 Personal Pocket' : '👨‍👩‍👧‍👦 Family Fund'}
+          </div>
+        ))}
+      </div>
 
-        <input type="number" placeholder="Amount ($)" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--tg-theme-hint-color)', background: 'var(--tg-theme-bg-color)', color: 'var(--tg-theme-text-color)', fontSize: '16px' }} />
-        <input type="text" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--tg-theme-hint-color)', background: 'var(--tg-theme-bg-color)', color: 'var(--tg-theme-text-color)', fontSize: '16px' }} />
+      {/* 4. Native Input Fields */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <input 
+          type="number" 
+          placeholder="Amount ($)" 
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          style={{
+            padding: '16px', borderRadius: '14px', border: 'none',
+            backgroundColor: 'var(--tg-theme-secondary-bg-color)',
+            color: 'var(--tg-theme-text-color)', fontSize: '18px', fontWeight: '500', outline: 'none'
+          }}
+        />
+        <input 
+          type="text" 
+          placeholder="What was this for?" 
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          style={{
+            padding: '16px', borderRadius: '14px', border: 'none',
+            backgroundColor: 'var(--tg-theme-secondary-bg-color)',
+            color: 'var(--tg-theme-text-color)', fontSize: '16px', outline: 'none'
+          }}
+        />
 
-        {fundSource === 'personal' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <input type="checkbox" checked={isOptionalSplit} onChange={(e) => setIsOptionalSplit(e.target.checked)} style={{ width: '20px', height: '20px' }} />
+        {/* Smooth Toggle for 50/50 Split */}
+        <div style={{
+           height: fundSource === 'personal' ? '50px' : '0px',
+           overflow: 'hidden', transition: 'height 0.3s ease',
+           display: 'flex', alignItems: 'center'
+        }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '15px', fontWeight: '500' }}>
+            <input 
+              type="checkbox" 
+              checked={isOptionalSplit}
+              onChange={(e) => setIsOptionalSplit(e.target.checked)}
+              style={{ width: '22px', height: '22px', accentColor: 'var(--tg-theme-button-color)' }}
+            />
             Split this 50/50 with partner
           </label>
-        )}
-
-        <button type="submit" style={{ backgroundColor: 'var(--tg-theme-button-color)', color: 'var(--tg-theme-button-text-color)', padding: '16px', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold' }}>Add to Ledger</button>
-      </form>
+        </div>
+      </div>
+      
+      {/* Notice: The old Submit button is GONE. It is now handled strictly by the Telegram MainButton! */}
     </div>
   );
 }
