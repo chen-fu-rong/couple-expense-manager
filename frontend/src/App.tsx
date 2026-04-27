@@ -23,11 +23,10 @@ function App() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [isOptionalSplit, setIsOptionalSplit] = useState(false); 
-  const [fundSource, setFundSource] = useState('personal'); // 'personal' or 'family'
+  const [fundSource, setFundSource] = useState('personal'); 
   
   const tg = window.Telegram.WebApp;
 
-  // 1. Fetch Data from FastAPI
   const fetchDashboardData = async (currentUserId: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/ledger/dashboard`);
@@ -35,22 +34,16 @@ function App() {
       
       setFamilyFund(data.family_fund);
 
-      // Determine who owes who based on the split_totals from backend
-      // split_totals looks like: { "UserA_ID": 150, "UserB_ID": 50 }
       const mySplitTotal = data.split_totals[currentUserId] || 0;
-      
-      // We assume if it's not you, it's the partner
       const partnerId = Object.keys(data.split_totals).find(id => id !== currentUserId) || "Partner";
       const partnerSplitTotal = data.split_totals[partnerId] || 0;
 
-      // If I paid $150 in splits, and partner paid $50 in splits.
-      // Net difference is $100. Partner owes me 50% of that ($50).
       const netDifference = mySplitTotal - partnerSplitTotal;
       const myBalance = netDifference / 2;
       const partnerBalance = -myBalance;
 
       setActiveUser(prev => prev ? { ...prev, personalBalance: myBalance } : null);
-      setPartner({ id: partnerId, name: "Partner", personalBalance: partnerBalance });
+      setPartner({ id: partnerId, name: partnerId === "Partner" ? "Partner" : "Aung Phyo Paing", personalBalance: partnerBalance });
 
     } catch (error) {
       console.error("Failed to fetch dashboard", error);
@@ -62,17 +55,15 @@ function App() {
     tg.expand();
 
     const tgUser = tg.initDataUnsafe?.user;
-    const userId = tgUser ? String(tgUser.id) : "111"; // Fallback for browser testing
+    const userId = tgUser ? String(tgUser.id) : "111"; 
     const userName = tgUser ? tgUser.first_name : "Desktop User";
 
     setActiveUser({ id: userId, name: userName, personalBalance: 0 });
-    setPartner({ id: "222", name: "Partner", personalBalance: 0 });
+    setPartner({ id: "222", name: "Aung Phyo Paing", personalBalance: 0 });
 
-    // Load real data!
     fetchDashboardData(userId);
   }, []);
 
-  // 2. Send Data to FastAPI
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const safeAlert = (msg: string) => {
@@ -102,14 +93,13 @@ function App() {
 
       safeAlert("Expense saved successfully!");
       
-      // Reset form and reload numbers
       setAmount('');
       setDescription('');
       setIsOptionalSplit(false);
       fetchDashboardData(activeUser.id);
 
     } catch (error) {
-      safeAlert("Error saving expense. Check connection.");
+      safeAlert("Error saving expense. Check your VPS connection.");
     }
   };
 
