@@ -12,27 +12,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from sqlalchemy.future import select
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
+from app.api.deps import get_db
+from app import models
+
 @app.get("/api/ledger/dashboard")
-def get_dashboard_data(db: Session = Depends(get_db)):
-    # 1. Calculate Family Fund (Contributions minus Family Expenses)
-    family_contributions = db.query(func.sum(models.Transaction.amount)).filter(
+async def get_dashboard_data(db: AsyncSession = Depends(get_db)):
+    # 1. Calculate Family Fund (Async)
+    contrib_query = select(func.sum(models.Transaction.amount)).where(
         models.Transaction.transaction_type == "contribution",
         models.Transaction.fund_source == "family"
-    ).scalar() or 0.0
+    )
+    contrib_result = await db.execute(contrib_query)
+    family_contributions = contrib_result.scalar() or 0.0
 
-    family_expenses = db.query(func.sum(models.Transaction.amount)).filter(
+    exp_query = select(func.sum(models.Transaction.amount)).where(
         models.Transaction.transaction_type == "expense",
         models.Transaction.fund_source == "family"
-    ).scalar() or 0.0
+    )
+    exp_result = await db.execute(exp_query)
+    family_expenses = exp_result.scalar() or 0.0
 
     family_fund_balance = family_contributions - family_expenses
 
-    # 2. Calculate 50/50 Split Debts (Personal pockets only)
-    split_txs = db.query(models.Transaction).filter(
+    # 2. Calculate Splits (Async)
+    split_query = select(models.Transaction).where(
         models.Transaction.is_split == True,
         models.Transaction.fund_source == "personal",
         models.Transaction.transaction_type == "expense"
-    ).all()
+    )
+    split_result = await db.execute(split_query)
+    split_txs = split_result.scalars().all()
 
     user_totals = {}
     for tx in split_txs:
