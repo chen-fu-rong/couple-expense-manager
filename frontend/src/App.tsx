@@ -90,13 +90,27 @@ function App() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!amount || !description || !activeUser) return;
+    // 1. Safe alert fallback for desktop browsers
+    const safeAlert = (msg: string) => {
+      try { 
+        if (tg.showAlert) { tg.showAlert(msg); } 
+        else { window.alert(msg); }
+      } catch { window.alert(msg); }
+    };
+
+    // 2. Warn the user if fields are empty instead of failing silently
+    if (!amount || !description) {
+      safeAlert("Please enter both an amount and a description.");
+      return;
+    }
+    if (!activeUser) return;
 
     try {
-      tg.MainButton.showProgress();
-      tg.HapticFeedback?.impactOccurred('medium');
+      // 3. Safely call Telegram UI features ONLY if they exist
+      if (tg.MainButton?.showProgress) tg.MainButton.showProgress();
+      if (tg.HapticFeedback?.impactOccurred) tg.HapticFeedback.impactOccurred('medium');
       
-      await fetch(`${API_BASE_URL}/expenses/`, {
+      const response = await fetch(`${API_BASE_URL}/expenses/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -109,18 +123,22 @@ function App() {
         })
       });
 
-      tg.HapticFeedback?.notificationOccurred('success');
+      if (!response.ok) throw new Error("Network response was not ok");
+
+      if (tg.HapticFeedback?.notificationOccurred) tg.HapticFeedback.notificationOccurred('success');
+      safeAlert("Expense saved successfully!");
+      
       setAmount('');
       setDescription('');
       setIsOptionalSplit(false);
-      loadAllData(activeUser.id); // Reload both the dashboard balances AND the history list
+      loadAllData(activeUser.id);
       
     } catch (error) {
-      tg.HapticFeedback?.notificationOccurred('error');
-      tg.showAlert("Network Error. Please try again.");
+      if (tg.HapticFeedback?.notificationOccurred) tg.HapticFeedback.notificationOccurred('error');
+      safeAlert("Network Error. Please try again.");
     } finally {
-      tg.MainButton.hideProgress();
-      tg.MainButton.hide();
+      if (tg.MainButton?.hideProgress) tg.MainButton.hideProgress();
+      if (tg.MainButton?.hide) tg.MainButton.hide();
     }
   }, [amount, description, activeUser, fundSource, isOptionalSplit]);
 
