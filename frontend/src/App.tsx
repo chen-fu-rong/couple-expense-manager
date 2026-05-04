@@ -193,6 +193,21 @@ function App() {
         </div>
       </div>
 
+        {/* --- NEW: Desktop Fallback Button --- */}
+        {tg.platform !== 'ios' && tg.platform !== 'android' && (
+          <button 
+            onClick={handleSave}
+            type="button"
+            style={{ 
+              backgroundColor: 'var(--tg-theme-button-color, #8A2BE2)', 
+              color: '#ffffff', padding: '16px', border: 'none', 
+              borderRadius: '14px', fontSize: '16px', fontWeight: 'bold', 
+              marginTop: '10px', cursor: 'pointer'
+            }}>
+            Add to Ledger (Desktop)
+          </button>
+        )}
+
       {/* NEW: Recent Transactions History UI */}
       <div>
         <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '15px', color: 'var(--tg-theme-text-color)' }}>Recent Activity</h3>
